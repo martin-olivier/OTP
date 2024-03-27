@@ -40,14 +40,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Update sources
-        run: sudo apt update
-
-      - name: Install dependencies
-        run: sudo apt install -y build-essential linux-sources-$(uname -r) kmod dwarves
+      - name: Create builder image
+        run: docker build . -t kernel_builder
 
       - name: Build project
-        run: make
+        run: >
+          docker run --rm
+          -v ${{ github.workspace }}:/build
+          kernel_builder
+          make
 
       - name: Clean project
-        run: make clean
+        run: >
+          docker run --rm
+          -v ${{ github.workspace }}:/build
+          kernel_builder
+          make clean
