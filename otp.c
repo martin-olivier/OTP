@@ -188,3 +188,5 @@ module_init(dev_init);
 module_exit(dev_exit);
 
 MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Martin Olivier, Gabriel Medoukali, Edouard Sengeissen");
+MODULE_DESCRIPTION("A one time password management kernel module");
