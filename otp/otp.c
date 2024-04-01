@@ -101,12 +101,14 @@ static int device_open(struct inode *, struct file *);
 static int device_release(struct inode *, struct file *);
 static ssize_t device_read(struct file *, char __user *, size_t, loff_t *);
 static ssize_t device_write(struct file *, const char __user *, size_t, loff_t *);
+static long device_ioctl(struct file *, unsigned int, unsigned long);
 
 static struct file_operations dev_fops = {
 	.read = device_read,
 	.write = device_write,
 	.open = device_open,
 	.release = device_release,
+	.unlocked_ioctl = device_ioctl,
 };
 
 static int __init dev_init(void)
@@ -260,6 +262,26 @@ static ssize_t device_write(struct file *file, const char __user *buff,
 		return len;
 	} else
 		return -EINVAL;
+}
+
+static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	int minor_number = iminor(file_inode(file));
+
+	switch (cmd) {
+	case 0: // Switch to password list OTP method
+		otp_states[minor_number].is_algo = false;
+		pr_info("Switched to password list OTP method for /dev/%s%i\n", DEVICE_NAME, minor_number);
+		break;
+	case 1: // Switch to key and time OTP method
+		otp_states[minor_number].is_algo = true;
+		pr_info("Switched to key and time OTP method for /dev/%s%i\n", DEVICE_NAME, minor_number);
+		break;
+	default:
+		return -EINVAL; // invalid command
+	}
+
+	return 0;
 }
 
 module_init(dev_init);

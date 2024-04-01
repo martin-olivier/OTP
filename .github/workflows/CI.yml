@@ -19,6 +19,9 @@ jobs:
   linter:
     name: linter
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: otp
 
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +39,9 @@ jobs:
     name: build
     runs-on: ubuntu-latest
     needs: linter
+    defaults:
+      run:
+        working-directory: otp
 
     steps:
       - uses: actions/checkout@v4
