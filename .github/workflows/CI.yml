@@ -52,13 +52,13 @@ jobs:
       - name: Build project
         run: >
           docker run --rm
-          -v ${{ github.workspace }}:/build
+          -v ${{ github.workspace }}/otp:/build
           kernel_builder
           make
 
       - name: Clean project
         run: >
           docker run --rm
-          -v ${{ github.workspace }}:/build
+          -v ${{ github.workspace }}/otp:/build
           kernel_builder
           make clean
