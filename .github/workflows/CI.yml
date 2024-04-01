@@ -64,15 +64,15 @@ jobs:
           make clean
 
   build_otp_tools:
-    name: build OTP tools
+    name: build OTP tool
     runs-on: ubuntu-latest
     needs: build_otp_module
     defaults:
       run:
-        working-directory: otp_tools
+        working-directory: otp_tool
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build OTP tools
+      - name: Build OTP tool
         run: cargo build --release
