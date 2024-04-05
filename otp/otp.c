@@ -12,21 +12,28 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/version.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 
-#define DEVICE_NAME "otp"
+#define MOD_NAME "otp"
 #define MAX_DEVICES 256
 
 static struct class *cls;
+static struct proc_dir_entry *proc;
 
-/* Major number assigned to the device driver */
+// major number assigned to the device driver
 static int major;
+
+////////////
+// STATES //
+////////////
 
 enum {
 	DEV_NOT_USED = 0,
 	DEV_USED = 1,
 };
 
-// stuct that contains one time password data
+// struct that contains one time password data
 struct otp_state {
 	int iterator;
 	bool already_validated;
@@ -34,6 +41,9 @@ struct otp_state {
 	bool is_algo;
 };
 
+/*
+ * Creates a default otp state
+ */
 static struct otp_state otp_state_new(void)
 {
 	return (struct otp_state) {
@@ -44,16 +54,20 @@ static struct otp_state otp_state_new(void)
 	};
 }
 
-// one time password data array
 struct otp_state otp_states[MAX_DEVICES];
 
-/* Parameters */
+////////////
+// PARAMS //
+////////////
+
 static int devices = 1;
 static char *pwd_list[4096] = { NULL };
 static int pwd_list_argc;
 
-/* Parameters callback */
-int notify_devices_param(const char *val, const struct kernel_param *kp)
+/*
+ * Called when the 'devices' parameter is changed
+ */
+static int notify_devices_param(const char *val, const struct kernel_param *kp)
 {
 	int old_devices = devices;
 	int res = param_set_int(val, kp);
@@ -76,21 +90,21 @@ int notify_devices_param(const char *val, const struct kernel_param *kp)
 	// if devices is greater than old devices, we need to add devices, instead, if it is smaller, we need to remove devices
 	if (devices > old_devices) {
 		for (int i = old_devices; i < devices; i++) {
-			device_create(cls, NULL, MKDEV(major, i), NULL, "%s%d", DEVICE_NAME, i);
+			device_create(cls, NULL, MKDEV(major, i), NULL, "%s%d", MOD_NAME, i);
 			otp_states[i] = otp_state_new();
-			pr_info("otp: device created at /dev/%s%d\n", DEVICE_NAME, i);
+			pr_info("otp: device created at /dev/%s%d\n", MOD_NAME, i);
 		}
 	} else if (devices < old_devices) {
 		for (int i = devices; i < old_devices; i++) {
 			device_destroy(cls, MKDEV(major, i));
-			pr_info("otp: device deleted /dev/%s%d\n", DEVICE_NAME, i);
+			pr_info("otp: device deleted /dev/%s%d\n", MOD_NAME, i);
 		}
 	}
 
 	return 0;
 }
 
-const struct kernel_param_ops devices_cb_ops = {
+static const struct kernel_param_ops devices_cb_ops = {
 	.set = &notify_devices_param,
 	.get = &param_get_int,
 };
@@ -101,7 +115,9 @@ MODULE_PARM_DESC(devices, "Number of devices to create");
 module_param_array(pwd_list, charp, &pwd_list_argc, 0660);
 MODULE_PARM_DESC(pwd_list, "Passwords list");
 
-/* Methods */
+////////////
+// DEVICE //
+////////////
 
 /*
  * Called when a process opens the device file
@@ -191,7 +207,7 @@ static ssize_t device_read_algo(struct file *file,
 }
 
 /*
- * Called when a process reads from the dev file
+ * Called when a process reads from a dev file
  */
 static ssize_t device_read(struct file *file,
 				char __user *buf,
@@ -255,7 +271,7 @@ static ssize_t device_write_algo(struct file *file, const char __user *buf,
 }
 
 /*
- * Called when a process writes to the dev file
+ * Called when a process writes to a dev file
  */
 static ssize_t device_write(struct file *file, const char __user *buf,
 				size_t len, loff_t *off)
@@ -268,6 +284,9 @@ static ssize_t device_write(struct file *file, const char __user *buf,
 		return device_write_list(file, buf, len, off);
 }
 
+/*
+ * Called when an process performs an i/o control operation to a dev file
+ */
 static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	int minor_number = iminor(file_inode(file));
@@ -275,11 +294,11 @@ static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	switch (cmd) {
 	case 0: // Switch to password list OTP method
 		otp_states[minor_number].is_algo = false;
-		pr_info("Switched to password list OTP method for /dev/%s%i\n", DEVICE_NAME, minor_number);
+		pr_info("Switched to password list OTP method for /dev/%s%i\n", MOD_NAME, minor_number);
 		break;
 	case 1: // Switch to key and time OTP method
 		otp_states[minor_number].is_algo = true;
-		pr_info("Switched to key and time OTP method for /dev/%s%i\n", DEVICE_NAME, minor_number);
+		pr_info("Switched to key and time OTP method for /dev/%s%i\n", MOD_NAME, minor_number);
 		break;
 	default:
 		return -EINVAL; // invalid command
@@ -288,7 +307,7 @@ static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return 0;
 }
 
-static struct file_operations dev_fops = {
+static const struct file_operations dev_ops = {
 	.read = device_read,
 	.write = device_write,
 	.open = device_open,
@@ -296,9 +315,44 @@ static struct file_operations dev_fops = {
 	.unlocked_ioctl = device_ioctl,
 };
 
+////////////
+// PROCFS //
+////////////
+
+/*
+ * Called when a process reads the proc file
+ */
+static int proc_show(struct seq_file *seq, void *off)
+{
+	seq_printf(seq, "DEVICE     MODE     PASSWORD\n");
+	seq_printf(seq, "------     ----     --------\n");
+
+	for (int i = 0; i < devices; i++) {
+		int iterator = otp_states[i].iterator;
+		bool validated = otp_states[i].already_validated;
+
+		seq_printf(seq, "%s%d%s     %s     %s\n",
+			MOD_NAME,
+			i,
+			i < 10 ? "  " : i < 100 ? " " : "",
+			otp_states[i].is_algo ? "algo" : "list",
+			otp_states[i].is_algo ? "" : iterator == -1 || validated ? "" : pwd_list[otp_states[i].iterator]
+		);
+	}
+
+	return 0;
+}
+
+//////////////////
+// INIT && EXIT //
+//////////////////
+
+/*
+ * Called when the module is installed
+ */
 static int __init dev_init(void)
 {
-	major = register_chrdev(0, DEVICE_NAME, &dev_fops);
+	major = register_chrdev(0, MOD_NAME, &dev_ops);
 
 	if (major < 0) {
 		pr_alert("Registering device failed with code %d\n", major);
@@ -307,26 +361,37 @@ static int __init dev_init(void)
 
 	pr_info("otp: major number assigned: %d\n", major);
 
-	cls = class_create(THIS_MODULE, DEVICE_NAME);
+	cls = class_create(THIS_MODULE, MOD_NAME);
 
 	for (int i = 0; i < devices; i++) {
-		device_create(cls, NULL, MKDEV(major, i), NULL, "%s%d", DEVICE_NAME, i);
+		device_create(cls, NULL, MKDEV(major, i), NULL, "%s%d", MOD_NAME, i);
 		otp_states[i] = otp_state_new();
-		pr_info("otp: device created at /dev/%s%d\n", DEVICE_NAME, i);
+		pr_info("otp: device created at /dev/%s%d\n", MOD_NAME, i);
 	}
+
+	proc = proc_create_single_data(MOD_NAME, 0666, NULL, &proc_show, NULL);
+
+	pr_info("otp: proc created at /proc/%s\n", MOD_NAME);
 
 	return 0;
 }
 
+/*
+ * Called when the module is removed
+ */
 static void __exit dev_exit(void)
 {
+	proc_remove(proc);
+
 	for (int i = 0; i < devices; i++) {
 		device_destroy(cls, MKDEV(major, i));
-		pr_info("otp: device deleted /dev/%s%d\n", DEVICE_NAME, i);
+		pr_info("otp: device deleted /dev/%s%d\n", MOD_NAME, i);
 	}
 	class_destroy(cls);
 
-	unregister_chrdev(major, DEVICE_NAME);
+	unregister_chrdev(major, MOD_NAME);
+
+	pr_info("otp: proc deleted /proc/%s\n", MOD_NAME);
 }
 
 module_init(dev_init);
