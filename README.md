@@ -5,7 +5,8 @@ A One Time Password management linux kernel module and it's additional tool
 First, you will need to install `otp_tool`. To do so, make sure [cargo](https://www.rust-lang.org/tools/install) is installed on your system.
 
 ```sh
-cargo install --path otp_tool
+cargo build --release --manifest-path otp_tool/Cargo.toml
+sudo install otp_tool/target/release/otp_tool /usr/local/bin/
 ```
 
 Then check the installation:
@@ -75,17 +76,17 @@ rmmod otp
 ### Using CLI
 
 ```sh
-cat /dev/otpX ; echo
+cat /dev/otp0 ; echo
 ```
 
 ```
 p4ssw0rd
 ```
 
-### Using otp_tools
+### Using otp_tool
 
 ```sh
-otp_tool /dev/otpX request
+otp_tool request /dev/otp0
 ```
 
 ```
@@ -99,7 +100,7 @@ p4ssw0rd
 With a wrong otp:
 
 ```sh
-echo -n "b@d p4ssw0rd" > /dev/otp
+echo -n "b@d p4ssw0rd" > /dev/otp0
 ```
 
 ```
@@ -109,27 +110,49 @@ write error: Invalid argument
 With the otp
 
 ```sh
-echo -n "p4ssw0rd" > /dev/otp
+echo -n "p4ssw0rd" > /dev/otp0
 ```
 
 A second time with the otp
 
 ```sh
-echo -n "p4ssw0rd" > /dev/otp
+echo -n "p4ssw0rd" > /dev/otp0
 ```
 
 ```
 write error: Invalid argument
 ```
 
-### Using otp_tools
+### Using otp_tool
 
 ```sh
-otp_tool /dev/otpX validate p4ssw0rd
+otp_tool validate /dev/otp0 p4ssw0rd
 ```
 
 ```
 otp has been approved by device '/dev/otpX'
+```
+
+## Display devices status
+
+### Using CLI
+
+```sh
+cat /proc/otp
+```
+
+### Using otp_tool
+
+```sh
+otp_tool status
+```
+
+```
+DEVICE     MODE     PASSWORD
+------     ----     --------
+otp0       algo     
+otp1       list     nEw
+otp2       list     P@ssw0RdS
 ```
 
 ## Display password list
@@ -171,7 +194,7 @@ otp4
 Put a device in `list` mode (default):
 
 ```sh
-otp_tool /dev/otp0 set-mode list
+otp_tool set-mode /dev/otp0 list
 ```
 
 ```
@@ -181,7 +204,7 @@ device '/dev/otp0' has been set to mode 'List'
 Put a device in `algo` mode:
 
 ```sh
-otp_tool /dev/otp0 set-mode algo
+otp_tool set-mode /dev/otp0 algo
 ```
 
 ```
