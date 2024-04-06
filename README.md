@@ -173,8 +173,16 @@ echo -n "nEw,BeTtEr,P@ssw0RdS" > /sys/module/otp/parameters/pwd_list
 
 ## Edit devices nb
 
+### Using CLI
+
 ```sh
 echo 5 > /sys/module/otp/parameters/devices
+```
+
+### Using otp_tool
+
+```sh
+otp_tool set-devices 5
 ```
 
 ```sh

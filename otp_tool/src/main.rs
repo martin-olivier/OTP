@@ -90,7 +90,7 @@ fn main() {
 
             let status = String::from_utf8(buffer).unwrap();
 
-            println!("{}", status);
+            print!("{}", status);
         },
         Command::SetDevices { devices } => {
             let mut dev_arg = open_file(DEVICES_ARG, OpenMode::Write);
