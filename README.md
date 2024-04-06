@@ -10,20 +10,22 @@ cargo install --path otp_tool
 
 Then check the installation:
 
+```sh
+otp_tool
 ```
-$ otp_tool
+
+```
 OTP tools - manage your OTP devices
 
-Usage: otp_tool <DEVICE> <COMMAND>
+Usage: otp_tool <COMMAND>
 
 Commands:
-  set-mode  Change the device mode
-  request   Request a one time password
-  validate  Validate a one time password
-  help      Print this message or the help of the given subcommand(s)
-
-Arguments:
-  <DEVICE>  OTP device path
+  status       Display devices status
+  set-devices  Change the numbers of devices
+  set-mode     Change a device mode
+  request      Request a one time password from a device
+  validate     Validate a one time password on a device
+  help         Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help     Print help
@@ -50,8 +52,11 @@ insmod otp/otp.ko devices=3 pwd_list=p4ssw0rd,12345,kernel,qwerty
 
 example with parameter `devices=3`:
 
+```sh
+ls /dev/ | grep otp
 ```
-$ ls /dev/ | grep otp
+
+```
 otp0
 otp1
 otp2
@@ -69,15 +74,21 @@ rmmod otp
 
 ### Using CLI
 
+```sh
+cat /dev/otpX ; echo
 ```
-$ cat /dev/otpX ; echo
+
+```
 p4ssw0rd
 ```
 
 ### Using otp_tools
 
+```sh
+otp_tool /dev/otpX request
 ```
-$ otp_tool /dev/otpX request
+
+```
 p4ssw0rd
 ```
 
@@ -87,52 +98,66 @@ p4ssw0rd
 
 With a wrong otp:
 
+```sh
+echo -n "b@d p4ssw0rd" > /dev/otp
 ```
-$ echo -n "b@d p4ssw0rd" > /dev/otp
+
+```
 write error: Invalid argument
 ```
 
 With the otp
 
-```
-$ echo -n "p4ssw0rd" > /dev/otp
+```sh
+echo -n "p4ssw0rd" > /dev/otp
 ```
 
 A second time with the otp
 
+```sh
+echo -n "p4ssw0rd" > /dev/otp
 ```
-$ echo -n "p4ssw0rd" > /dev/otp
+
+```
 write error: Invalid argument
 ```
 
 ### Using otp_tools
 
+```sh
+otp_tool /dev/otpX validate p4ssw0rd
 ```
-$ otp_tool /dev/otpX validate p4ssw0rd
+
+```
 otp has been approved by device '/dev/otpX'
 ```
 
 ## Display password list
 
+```sh
+cat /sys/module/otp/parameters/pwd_list
 ```
-$ cat /sys/module/otp/parameters/pwd_list
+
+```
 p4ssw0rd,12345,kernel,qwerty
 ```
 
 ## Edit password list
 
-```
-$ echo "nEw,BeTtEr,P@ssw0RdS" > /sys/module/otp/parameters/pwd_list
+```sh
+echo -n "nEw,BeTtEr,P@ssw0RdS" > /sys/module/otp/parameters/pwd_list
 ```
 
 ## Edit devices nb
 
-```
+```sh
 echo 5 > /sys/module/otp/parameters/devices
 ```
 
+```sh
+ls /dev/ | grep otp
+
 ```
-$ ls /dev/ | grep otp
 otp0
 otp1
 otp2
@@ -144,14 +169,20 @@ otp4
 
 Put a device in `list` mode (default):
 
+```sh
+otp_tool /dev/otp0 set-mode list
 ```
-$ otp_tool /dev/otpX set-mode list
-device '/dev/otpX' has been set to mode 'List'
+
+```
+device '/dev/otp0' has been set to mode 'List'
 ```
 
 Put a device in `algo` mode:
 
+```sh
+otp_tool /dev/otp0 set-mode algo
 ```
-$ otp_tool /dev/otpX set-mode algo
-device '/dev/otpX' has been set to mode 'Algo'
+
+```
+device '/dev/otp0' has been set to mode 'Algo'
 ```

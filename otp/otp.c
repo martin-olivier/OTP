@@ -233,9 +233,11 @@ static ssize_t device_write_list(struct file *file, const char __user *buf,
 
 	int minor_number = iminor(file_inode(file));
 
+	// if current otp has been already validated, return EINVAL
 	if (otp_states[minor_number].already_validated)
 		return -EINVAL;
 
+	// if iterator is out of range, return EINVAL
 	if (otp_states[minor_number].iterator == -1 || otp_states[minor_number].iterator >= pwd_list_argc)
 		return -EINVAL;
 
@@ -327,6 +329,7 @@ static int proc_show(struct seq_file *seq, void *off)
 	seq_printf(seq, "DEVICE     MODE     PASSWORD\n");
 	seq_printf(seq, "------     ----     --------\n");
 
+	// iterate on all devices to display their current status
 	for (int i = 0; i < devices; i++) {
 		int iterator = otp_states[i].iterator;
 		bool validated = otp_states[i].already_validated;
@@ -334,9 +337,11 @@ static int proc_show(struct seq_file *seq, void *off)
 		seq_printf(seq, "%s%d%s     %s     %s\n",
 			MOD_NAME,
 			i,
-			i < 10 ? "  " : i < 100 ? " " : "",
+			i < 10 ? "  " : (i < 100 ? " " : ""),
 			otp_states[i].is_algo ? "algo" : "list",
-			otp_states[i].is_algo ? "" : iterator == -1 || validated ? "" : pwd_list[otp_states[i].iterator]
+			otp_states[i].is_algo ? "" : (
+				iterator == -1 || validated ? "" : pwd_list[otp_states[i].iterator]
+			)
 		);
 	}
 
