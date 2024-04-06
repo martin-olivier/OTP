@@ -156,6 +156,7 @@ echo 5 > /sys/module/otp/parameters/devices
 
 ```sh
 ls /dev/ | grep otp
+```
 
 ```
 otp0
