@@ -19,6 +19,9 @@ jobs:
   linter:
     name: linter
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: otp
 
     steps:
       - uses: actions/checkout@v4
@@ -30,12 +33,15 @@ jobs:
         run: chmod +x checkpatch.pl
 
       - name: Run checkpatch
-        run: ./checkpatch.pl --no-tree --terse --show-types -f *.c --ignore FILE_PATH_CHANGES --ignore LONG_LINE --ignore LONG_LINE_STRING --ignore LONG_LINE_COMMENT --ignore LONG_LINE_STRING --ignore LONG_LINE_COMMENT --ignore LONG_LINE_COMMENT
+        run: ./checkpatch.pl --no-tree --terse --show-types -f *.c --ignore PREFER_SEQ_PUTS
 
-  build:
-    name: build
+  build_otp_module:
+    name: build OTP module
     runs-on: ubuntu-latest
     needs: linter
+    defaults:
+      run:
+        working-directory: otp
 
     steps:
       - uses: actions/checkout@v4
@@ -46,13 +52,27 @@ jobs:
       - name: Build project
         run: >
           docker run --rm
-          -v ${{ github.workspace }}:/build
+          -v ${{ github.workspace }}/otp:/build
           kernel_builder
           make
 
       - name: Clean project
         run: >
           docker run --rm
-          -v ${{ github.workspace }}:/build
+          -v ${{ github.workspace }}/otp:/build
           kernel_builder
           make clean
+
+  build_otp_tools:
+    name: build OTP tool
+    runs-on: ubuntu-latest
+    needs: build_otp_module
+    defaults:
+      run:
+        working-directory: otp_tool
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build OTP tool
+        run: cargo build --release
