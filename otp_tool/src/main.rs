@@ -1,5 +1,9 @@
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
+
 use clap::{Parser, Subcommand, ValueEnum};
-use std::{fs::{File, OpenOptions}, io::{Read, Write}, os::fd::AsRawFd};
+use colored::Colorize;
 
 /// OTP tools - manage your OTP devices
 #[derive(Debug, Parser)]
@@ -28,6 +32,16 @@ enum Command {
         #[arg(value_enum)]
         mode: Mode,
     },
+    
+    /// Change the password list
+    SetPasswords {
+        /// Passwords to set
+        #[clap(required = true)]
+        passwords: Vec<String>,
+    },
+
+    /// Show the password list
+    ShowPasswords,
 
     /// Request a one time password from a device
     Request {
@@ -52,11 +66,19 @@ enum Mode {
 
 const PROC: &str = "/proc/otp";
 const DEVICES_ARG: &str = "/sys/module/otp/parameters/devices";
+const PASSWORDS_ARG: &str = "/sys/module/otp/parameters/pwd_list";
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 enum OpenMode {
     Read,
     Write,
+}
+
+macro_rules! failure {
+    ($($arg:tt)*) => {
+        eprintln!("{}", format!($($arg)*).red());
+        std::process::exit(1);
+    }
 }
 
 fn open_file(path: &str, mode: OpenMode) -> File {
@@ -67,8 +89,7 @@ fn open_file(path: &str, mode: OpenMode) -> File {
         .open(path) {
             Ok(file) => file,
             Err(err) => {
-                eprintln!("Failed to open '{}': {}", path, err);
-                std::process::exit(1);
+                failure!("Failed to open '{}': {}", path, err);
             }
     }
 }
@@ -84,8 +105,7 @@ fn main() {
             let mut proc = open_file(PROC, OpenMode::Read);
 
             if let Err(e) = proc.read_to_end(&mut buffer) {
-                eprintln!("failed to read from device '{}': {}", PROC, e);
-                std::process::exit(1);
+                failure!("failed to read '{}': {}", PROC, e);
             }
 
             let status = String::from_utf8(buffer).unwrap();
@@ -98,11 +118,10 @@ fn main() {
             match dev_arg.write_all(devices.to_string().as_bytes()) {
                 Ok(()) => println!("there is now {} otp devices", devices),
                 Err(e) => {
-                    eprintln!("devices argument as been rejected: '{}'", e);
-                    std::process::exit(1);
+                    failure!("devices argument as been rejected: '{}'", e);
                 }
             }
-        }
+        },
         Command::SetMode { device, mode } => {
             let dev = open_file(&device, OpenMode::Write);
 
@@ -113,19 +132,45 @@ fn main() {
 
             unsafe {
                 if libc::ioctl(dev.as_raw_fd(), mode_id) == -1 {
-                    panic!("ioctl failed");
+                    failure!("ioctl failed");
                 }
             }
 
             println!("device '{}' has been set to mode '{:?}'", device, mode);
+        },
+        Command::SetPasswords { passwords } => {
+            let mut dev = open_file(PASSWORDS_ARG, OpenMode::Write);
+
+            let passwords = passwords.join(",");
+
+            match dev.write_all(passwords.as_bytes()) {
+                Ok(()) => println!("new passwords have been set"),
+                Err(e) => {
+                    failure!("new passwords have been rejected: '{}'", e);
+                }
+            }
+        },
+        Command::ShowPasswords => {
+            let mut buffer = Vec::new();
+            let mut dev = open_file(PASSWORDS_ARG, OpenMode::Read);
+
+            if let Err(e) = dev.read_to_end(&mut buffer) {
+                failure!("failed to read '{}': {}", PASSWORDS_ARG, e);
+            }
+
+            let passwords = String::from_utf8(buffer).unwrap();
+            let pwd_list = passwords.split(",").collect::<Vec<&str>>();
+
+            for pwd in pwd_list {
+                println!("{}", pwd);
+            }
         },
         Command::Request { device } => {
             let mut buffer = Vec::new();
             let mut dev = open_file(&device, OpenMode::Read);
 
             if let Err(e) = dev.read_to_end(&mut buffer) {
-                eprintln!("failed to read from device '{}': {}", device, e);
-                std::process::exit(1);
+                failure!("failed to read '{}': {}", device, e);
             }
 
             let otp = String::from_utf8(buffer).unwrap();
@@ -138,8 +183,7 @@ fn main() {
             match dev.write_all(otp.as_bytes()) {
                 Ok(()) => println!("otp has been approved by device '{}'", device),
                 Err(_) => {
-                    eprintln!("otp has been rejected by device '{}'", device);
-                    std::process::exit(1);
+                    failure!("otp has been rejected by device '{}'", device);
                 }
             }
         },

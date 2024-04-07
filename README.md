@@ -2,7 +2,9 @@
 
 A One Time Password management linux kernel module and it's additional tool
 
-First, you will need to install `otp_tool`. To do so, make sure [cargo](https://www.rust-lang.org/tools/install) is installed on your system.
+## Build OTP tool
+
+You will need to install `otp_tool`. To do so, make sure [cargo](https://www.rust-lang.org/tools/install) is installed on your system.
 
 ```sh
 cargo build --release --manifest-path otp_tool/Cargo.toml
@@ -21,12 +23,14 @@ OTP tools - manage your OTP devices
 Usage: otp_tool <COMMAND>
 
 Commands:
-  status       Display devices status
-  set-devices  Change the numbers of devices
-  set-mode     Change a device mode
-  request      Request a one time password from a device
-  validate     Validate a one time password on a device
-  help         Print this message or the help of the given subcommand(s)
+  status          Display devices status
+  set-devices     Change the numbers of devices
+  set-mode        Change a device mode
+  set-passwords   Change the password list
+  show-passwords  Show the password list
+  request         Request a one time password from a device
+  validate        Validate a one time password on a device
+  help            Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help     Print help
@@ -79,15 +83,13 @@ rmmod otp
 cat /dev/otp0 ; echo
 ```
 
-```
-p4ssw0rd
-```
-
-### Using otp_tool
+### Using OTP tool
 
 ```sh
 otp_tool request /dev/otp0
 ```
+
+### Result
 
 ```
 p4ssw0rd
@@ -107,13 +109,13 @@ echo -n "b@d p4ssw0rd" > /dev/otp0
 write error: Invalid argument
 ```
 
-With the otp
+With the otp:
 
 ```sh
 echo -n "p4ssw0rd" > /dev/otp0
 ```
 
-A second time with the otp
+A second time with the otp:
 
 ```sh
 echo -n "p4ssw0rd" > /dev/otp0
@@ -123,14 +125,14 @@ echo -n "p4ssw0rd" > /dev/otp0
 write error: Invalid argument
 ```
 
-### Using otp_tool
+### Using OTP tool
 
 ```sh
 otp_tool validate /dev/otp0 p4ssw0rd
 ```
 
 ```
-otp has been approved by device '/dev/otpX'
+otp has been approved by device '/dev/otp0'
 ```
 
 ## Display devices status
@@ -141,11 +143,13 @@ otp has been approved by device '/dev/otpX'
 cat /proc/otp
 ```
 
-### Using otp_tool
+### Using OTP tool
 
 ```sh
 otp_tool status
 ```
+
+### Result
 
 ```
 DEVICE     MODE     PASSWORD
@@ -179,7 +183,7 @@ echo -n "nEw,BeTtEr,P@ssw0RdS" > /sys/module/otp/parameters/pwd_list
 echo 5 > /sys/module/otp/parameters/devices
 ```
 
-### Using otp_tool
+### Using OTP tool
 
 ```sh
 otp_tool set-devices 5
