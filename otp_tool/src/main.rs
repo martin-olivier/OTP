@@ -159,7 +159,7 @@ fn main() {
             }
 
             let passwords = String::from_utf8(buffer).unwrap();
-            let pwd_list = passwords.split(",").collect::<Vec<&str>>();
+            let pwd_list = passwords.trim_end_matches('\n').split(",").collect::<Vec<&str>>();
 
             for pwd in pwd_list {
                 println!("{}", pwd);

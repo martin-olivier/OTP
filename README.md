@@ -161,9 +161,19 @@ otp2       list     P@ssw0RdS
 
 ## Display password list
 
+### Using CLI
+
 ```sh
 cat /sys/module/otp/parameters/pwd_list
 ```
+
+### Using OTP tool
+
+```sh
+otp_tool show-passwords
+```
+
+### Result
 
 ```
 p4ssw0rd,12345,kernel,qwerty
@@ -171,8 +181,16 @@ p4ssw0rd,12345,kernel,qwerty
 
 ## Edit password list
 
+### Using CLI
+
 ```sh
 echo -n "nEw,BeTtEr,P@ssw0RdS" > /sys/module/otp/parameters/pwd_list
+```
+
+### Using OTP tool
+
+```sh
+otp_tool set-passwords nEw BeTtEr P@ssw0RdS
 ```
 
 ## Edit devices nb
@@ -188,6 +206,8 @@ echo 5 > /sys/module/otp/parameters/devices
 ```sh
 otp_tool set-devices 5
 ```
+
+### Result
 
 ```sh
 ls /dev/ | grep otp
