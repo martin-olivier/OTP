@@ -68,8 +68,8 @@ struct otp_state otp_states[MAX_DEVICES];
 static int devices = 1;
 static char *pwd_list[4096] = { NULL };
 static int pwd_list_argc;
-static int pwd_key = 0;
-static int pwd_expiration = 0;
+static int pwd_key = 0x42;
+static int pwd_expiration = 30;
 
 /*
  * Called when the 'devices' parameter is changed
@@ -279,9 +279,9 @@ static void encrypt_key(char *pwd, int pwd_len)
 {
 	const char first_pchar = '!';
 	const char last_pchar_offset = '~' - first_pchar;
-	for (int i = 0; i < pwd_len; i++) {
-		pwd[i] =  first_pchar + ( rand() % last_pchar_offset ) ;
-	}
+
+	for (int i = 0; i < pwd_len; i++)
+		pwd[i] =  first_pchar + (rand() % last_pchar_offset);
 }
 
 /*
@@ -382,7 +382,7 @@ static int proc_show(struct seq_file *seq, void *off)
 		int iterator = otp_states[i].data.iterator;
 		bool validated = otp_states[i].already_validated;
 		bool algo = otp_states[i].is_algo;
-		
+
 		seq_printf(seq, "%s%d%s     %s     %s\n",
 			MOD_NAME,
 			i,
