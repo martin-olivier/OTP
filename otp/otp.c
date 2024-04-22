@@ -18,7 +18,7 @@
 
 #define MOD_NAME "otp"
 #define MAX_DEVICES 256
-#define MAX_ALGO_PWD_LEN 256
+#define MAX_ALGO_PWD_LEN 16
 
 static struct class *cls;
 static struct proc_dir_entry *proc;
@@ -39,7 +39,7 @@ enum {
 struct otp_state {
 	union {
 		int iterator;
-		char key[16];
+		char key[MAX_ALGO_PWD_LEN];
 	} data;
 	bool already_validated;
 	atomic_t already_open;
@@ -283,7 +283,7 @@ static void generate_key(char *key, int key_len)
 
 	for (int i = 0; i < key_len; i++) {
 		get_random_bytes(&random, sizeof(random));
-		key[i] = first_pchar + ((random * 27 * key_key[i]) % last_pchar_offset);
+		key[i] = first_pchar + ((random * 27 * pwd_key[i]) % last_pchar_offset);
 	}
 }
 
