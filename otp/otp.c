@@ -283,7 +283,7 @@ static void generate_key(char *key, int key_len)
 
 	for (int i = 0; i < key_len; i++) {
 		get_random_bytes(&random, sizeof(random));
-		key[i] = first_pchar + ((random * 27 * pwd_key) % last_pchar_offset);
+		key[i] = first_pchar + ((random * 27 ^ pwd_key) % last_pchar_offset);
 	}
 }
 
@@ -391,7 +391,7 @@ static int proc_show(struct seq_file *seq, void *off)
 			i,
 			i < 10 ? "  " : (i < 100 ? " " : ""),
 			algo ? "algo" : "list",
-			algo ? "" : (
+			algo ? otp_states[i].data.key : (
 				iterator == -1 || validated ? "" : pwd_list[otp_states[i].data.iterator]
 			)
 		);
