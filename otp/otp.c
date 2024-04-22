@@ -14,6 +14,7 @@
 #include <linux/version.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
+#include <stdlib.h>
 
 #define MOD_NAME "otp"
 #define MAX_DEVICES 256
@@ -39,7 +40,7 @@ struct otp_state {
 	union {
 		int iterator;
 		char key[16];
-	}
+	} data;
 	bool already_validated;
 	atomic_t already_open;
 	bool is_algo;
@@ -51,7 +52,7 @@ struct otp_state {
 static struct otp_state otp_state_new(void)
 {
 	return (struct otp_state) {
-		.iterator = -1,
+		.data = {.key = {0}},
 		.already_validated = true,
 		.already_open = ATOMIC_INIT(DEV_NOT_USED),
 		.is_algo = false
@@ -60,12 +61,6 @@ static struct otp_state otp_state_new(void)
 
 struct otp_state otp_states[MAX_DEVICES];
 
-//////////////
-// ALGO VAR //
-//////////////
-
-static char *algo_pwd_list[MAX_ALGO_PWD_LEN][MAX_DEVICES] = { 0 }
-
 ////////////
 // PARAMS //
 ////////////
@@ -73,7 +68,7 @@ static char *algo_pwd_list[MAX_ALGO_PWD_LEN][MAX_DEVICES] = { 0 }
 static int devices = 1;
 static char *pwd_list[4096] = { NULL };
 static int pwd_list_argc;
-static char pwd_key[4096] = { '\0' };
+static int pwd_key = 0;
 static int pwd_expiration = 0;
 
 /*
@@ -127,11 +122,11 @@ MODULE_PARM_DESC(devices, "Number of devices to create");
 module_param_array(pwd_list, charp, &pwd_list_argc, 0660);
 MODULE_PARM_DESC(pwd_list, "Passwords list");
 
-module_param(pwd_key, charp, 0660);
+module_param(pwd_key, int, 0660);
 MODULE_PARM_DESC(pwd_key, "Encryption key (algorithm mode)");
 
 module_param(pwd_expiration, int, 0660);
-MODULE_PARM_DESC(pwd_key, "Encryption key expiration in days (algorithm mode)");
+MODULE_PARM_DESC(pwd_key, "Encryption key expiration in seconds (algorithm mode)");
 
 
 ////////////
@@ -186,15 +181,14 @@ static ssize_t device_read_list(struct file *file,
 
 	if (pwd_list_argc == 0)
 		return -EINVAL;
-
 	// If a new read occurs, we need to create a new one time password
 	if (*off == 0) {
-		otp_states[minor_number].iterator++;
-		if (otp_states[minor_number].iterator >= pwd_list_argc)
-			otp_states[minor_number].iterator = 0;
+		otp_states[minor_number].data.iterator++;
+		if (otp_states[minor_number].data.iterator >= pwd_list_argc)
+			otp_states[minor_number].data.iterator = 0;
 	}
 
-	string_length = strlen(pwd_list[otp_states[minor_number].iterator]);
+	string_length = strlen(pwd_list[otp_states[minor_number].data.iterator]);
 	bytes_to_read = min(len, (size_t)(string_length - *off));
 
 	// If offset is beyond the end of the string, we have nothing more to read
@@ -204,7 +198,7 @@ static ssize_t device_read_list(struct file *file,
 	}
 
 	// Copy data from kernel buffer to user buffer
-	if (copy_to_user(buf, pwd_list[otp_states[minor_number].iterator] + *off, bytes_to_read))
+	if (copy_to_user(buf, pwd_list[otp_states[minor_number].data.iterator] + *off, bytes_to_read))
 		return -EFAULT;
 
 	// Update the offset and number of bytes read
@@ -257,10 +251,10 @@ static ssize_t device_write_list(struct file *file, const char __user *buf,
 		return -EINVAL;
 
 	// if iterator is out of range, return EINVAL
-	if (otp_states[minor_number].iterator == -1 || otp_states[minor_number].iterator >= pwd_list_argc)
+	if (otp_states[minor_number].data.iterator == -1 || otp_states[minor_number].data.iterator >= pwd_list_argc)
 		return -EINVAL;
 
-	pwd_len = strlen(pwd_list[otp_states[minor_number].iterator]);
+	pwd_len = strlen(pwd_list[otp_states[minor_number].data.iterator]);
 
 	if (len > PAGE_SIZE)
 		return -EINVAL;
@@ -274,20 +268,19 @@ static ssize_t device_write_list(struct file *file, const char __user *buf,
 		return -EFAULT;
 
 	// compare incoming data with the current password
-	if (strncmp(kernel_buf, pwd_list[otp_states[minor_number].iterator], pwd_len) == 0) {
+	if (strncmp(kernel_buf, pwd_list[otp_states[minor_number].data.iterator], pwd_len) == 0) {
 		otp_states[minor_number].already_validated = true;
 		return len;
 	} else
 		return -EINVAL;
 }
 
-static void encrypt_key(char *key, int key_len, char *pwd, int pwd_len)
+static void encrypt_key(char *pwd, int pwd_len)
 {
 	const char first_pchar = '!';
 	const char last_pchar_offset = '~' - first_pchar;
 	for (int i = 0; i < pwd_len; i++) {
-		const char encrypted_letter = pwd[i] ^ key[i % key_len];
-		pwd[i] =  first_pchar + ( encrypted_letter % last_pchar_offset ) ;
+		pwd[i] =  first_pchar + ( rand() % last_pchar_offset ) ;
 	}
 }
 
@@ -306,7 +299,7 @@ static ssize_t device_write_algo(struct file *file, const char __user *buf,
 	if (otp_states[minor_number].already_validated)
 		return -EINVAL;
 
-	pwd_len = strlen(pwd_list[otp_states[minor_number].iterator]);
+	pwd_len = sizeof(otp_states[minor_number].data.key);
 
 	if (len > MAX_ALGO_PWD_LEN)
 		return -EINVAL;
@@ -319,11 +312,8 @@ static ssize_t device_write_algo(struct file *file, const char __user *buf,
 	if (copy_from_user(kernel_buf, buf, len))
 		return -EFAULT;
 
-	// encrypt the incoming data
-	encrypt_key(pwd_key, pwd_len, kernel_buf, len);
-
 	// compare incoming data with the current password
-	if (strncmp(kernel_buf, algo_pwd_list[minor_number], pwd_len) == 0) {
+	if (strncmp(kernel_buf, otp_states[minor_number].data.key, pwd_len) == 0) {
 		otp_states[minor_number].already_validated = true;
 		return len;
 	} else
@@ -389,7 +379,7 @@ static int proc_show(struct seq_file *seq, void *off)
 
 	// iterate on all devices to display their current status
 	for (int i = 0; i < devices; i++) {
-		int iterator = otp_states[i].iterator;
+		int iterator = otp_states[i].data.iterator;
 		bool validated = otp_states[i].already_validated;
 		bool algo = otp_states[i].is_algo;
 		
@@ -399,7 +389,7 @@ static int proc_show(struct seq_file *seq, void *off)
 			i < 10 ? "  " : (i < 100 ? " " : ""),
 			algo ? "algo" : "list",
 			algo ? "" : (
-				iterator == -1 || validated ? "" : pwd_list[otp_states[i].iterator]
+				iterator == -1 || validated ? "" : pwd_list[otp_states[i].data.iterator]
 			)
 		);
 	}
@@ -417,6 +407,8 @@ static int proc_show(struct seq_file *seq, void *off)
 static int __init dev_init(void)
 {
 	major = register_chrdev(0, MOD_NAME, &dev_ops);
+
+	srand(pwd_key);
 
 	if (major < 0) {
 		pr_alert("Registering device failed with code %d\n", major);
