@@ -275,15 +275,15 @@ static ssize_t device_write_list(struct file *file, const char __user *buf,
 		return -EINVAL;
 }
 
-static void encrypt_key(char *pwd, int pwd_len)
+static void generate_key(char *key, int key_len)
 {
 	const char first_pchar = '!';
 	const char last_pchar_offset = '~' - first_pchar;
 	int random = 0;
 
-	for (int i = 0; i < pwd_len; i++) {
+	for (int i = 0; i < key_len; i++) {
 		get_random_bytes(&random, sizeof(random));
-		pwd[i] = first_pchar + ((*random * 27) % last_pchar_offset);
+		key[i] = first_pchar + ((random * 27 * key_key[i]) % last_pchar_offset);
 	}
 }
 
@@ -410,8 +410,6 @@ static int proc_show(struct seq_file *seq, void *off)
 static int __init dev_init(void)
 {
 	major = register_chrdev(0, MOD_NAME, &dev_ops);
-
-	srand(pwd_key);
 
 	if (major < 0) {
 		pr_alert("Registering device failed with code %d\n", major);
