@@ -14,7 +14,7 @@
 #include <linux/version.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
-#include <stdlib.h>
+#include <linux/random.h>
 
 #define MOD_NAME "otp"
 #define MAX_DEVICES 256
@@ -279,9 +279,12 @@ static void encrypt_key(char *pwd, int pwd_len)
 {
 	const char first_pchar = '!';
 	const char last_pchar_offset = '~' - first_pchar;
+	int random = 0;
 
-	for (int i = 0; i < pwd_len; i++)
-		pwd[i] =  first_pchar + (rand() % last_pchar_offset);
+	for (int i = 0; i < pwd_len; i++) {
+		get_random_bytes(&random, sizeof(random));
+		pwd[i] =  first_pchar + ((*random * 27 ) % last_pchar_offset);
+	}
 }
 
 /*
