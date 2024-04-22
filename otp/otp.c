@@ -17,6 +17,7 @@
 
 #define MOD_NAME "otp"
 #define MAX_DEVICES 256
+#define MAX_ALGO_PWD_LEN 256
 
 static struct class *cls;
 static struct proc_dir_entry *proc;
@@ -35,7 +36,10 @@ enum {
 
 // struct that contains one time password data
 struct otp_state {
-	int iterator;
+	union {
+		int iterator;
+		char key[16];
+	}
 	bool already_validated;
 	atomic_t already_open;
 	bool is_algo;
@@ -56,6 +60,12 @@ static struct otp_state otp_state_new(void)
 
 struct otp_state otp_states[MAX_DEVICES];
 
+//////////////
+// ALGO VAR //
+//////////////
+
+static char *algo_pwd_list[MAX_ALGO_PWD_LEN][MAX_DEVICES] = { 0 }
+
 ////////////
 // PARAMS //
 ////////////
@@ -63,6 +73,8 @@ struct otp_state otp_states[MAX_DEVICES];
 static int devices = 1;
 static char *pwd_list[4096] = { NULL };
 static int pwd_list_argc;
+static char pwd_key[4096] = { '\0' };
+static int pwd_expiration = 0;
 
 /*
  * Called when the 'devices' parameter is changed
@@ -114,6 +126,13 @@ MODULE_PARM_DESC(devices, "Number of devices to create");
 
 module_param_array(pwd_list, charp, &pwd_list_argc, 0660);
 MODULE_PARM_DESC(pwd_list, "Passwords list");
+
+module_param(pwd_key, charp, 0660);
+MODULE_PARM_DESC(pwd_key, "Encryption key (algorithm mode)");
+
+module_param(pwd_expiration, int, 0660);
+MODULE_PARM_DESC(pwd_key, "Encryption key expiration in days (algorithm mode)");
+
 
 ////////////
 // DEVICE //
@@ -262,14 +281,53 @@ static ssize_t device_write_list(struct file *file, const char __user *buf,
 		return -EINVAL;
 }
 
+static void encrypt_key(char *key, int key_len, char *pwd, int pwd_len)
+{
+	const char first_pchar = '!';
+	const char last_pchar_offset = '~' - first_pchar;
+	for (int i = 0; i < pwd_len; i++) {
+		const char encrypted_letter = pwd[i] ^ key[i % key_len];
+		pwd[i] =  first_pchar + ( encrypted_letter % last_pchar_offset ) ;
+	}
+}
+
 /*
  * Called by 'device_write' when the device mode is set to algo
  */
 static ssize_t device_write_algo(struct file *file, const char __user *buf,
 				size_t len, loff_t *off)
 {
-	// TODO: to implement
-	return -EINVAL;
+	static char kernel_buf[MAX_ALGO_PWD_LEN];
+	int pwd_len = 0;
+
+	int minor_number = iminor(file_inode(file));
+
+	// if current otp has been already validated, return EINVAL
+	if (otp_states[minor_number].already_validated)
+		return -EINVAL;
+
+	pwd_len = strlen(pwd_list[otp_states[minor_number].iterator]);
+
+	if (len > MAX_ALGO_PWD_LEN)
+		return -EINVAL;
+
+	// check if the password length is the same as the incoming data
+	if (len != pwd_len)
+		return -EINVAL;
+
+	// get the data from the user
+	if (copy_from_user(kernel_buf, buf, len))
+		return -EFAULT;
+
+	// encrypt the incoming data
+	encrypt_key(pwd_key, pwd_len, kernel_buf, len);
+
+	// compare incoming data with the current password
+	if (strncmp(kernel_buf, algo_pwd_list[minor_number], pwd_len) == 0) {
+		otp_states[minor_number].already_validated = true;
+		return len;
+	} else
+		return -EINVAL;
 }
 
 /*
@@ -333,13 +391,14 @@ static int proc_show(struct seq_file *seq, void *off)
 	for (int i = 0; i < devices; i++) {
 		int iterator = otp_states[i].iterator;
 		bool validated = otp_states[i].already_validated;
-
+		bool algo = otp_states[i].is_algo;
+		
 		seq_printf(seq, "%s%d%s     %s     %s\n",
 			MOD_NAME,
 			i,
 			i < 10 ? "  " : (i < 100 ? " " : ""),
-			otp_states[i].is_algo ? "algo" : "list",
-			otp_states[i].is_algo ? "" : (
+			algo ? "algo" : "list",
+			algo ? "" : (
 				iterator == -1 || validated ? "" : pwd_list[otp_states[i].iterator]
 			)
 		);
