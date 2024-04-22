@@ -283,7 +283,7 @@ static void encrypt_key(char *pwd, int pwd_len)
 
 	for (int i = 0; i < pwd_len; i++) {
 		get_random_bytes(&random, sizeof(random));
-		pwd[i] =  first_pchar + ((*random * 27 ) % last_pchar_offset);
+		pwd[i] = first_pchar + ((*random * 27) % last_pchar_offset);
 	}
 }
 
