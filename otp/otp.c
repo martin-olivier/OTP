@@ -207,6 +207,18 @@ static ssize_t device_read_list(struct file *file,
 	return bytes_to_read;
 }
 
+static void generate_key(char *key, int key_len)
+{
+	const char first_pchar = '!';
+	const char last_pchar_offset = '~' - first_pchar;
+	int random = 0;
+
+	for (int i = 0; i < key_len; i++) {
+		get_random_bytes(&random, sizeof(random));
+		key[i] = first_pchar + ((random * 27 ^ pwd_key) % last_pchar_offset);
+	}
+}
+
 /*
  * Called by 'device_read' when the device mode is set to algo
  */
@@ -288,18 +300,6 @@ static ssize_t device_write_list(struct file *file, const char __user *buf,
 		return len;
 	} else
 		return -EINVAL;
-}
-
-static void generate_key(char *key, int key_len)
-{
-	const char first_pchar = '!';
-	const char last_pchar_offset = '~' - first_pchar;
-	int random = 0;
-
-	for (int i = 0; i < key_len; i++) {
-		get_random_bytes(&random, sizeof(random));
-		key[i] = first_pchar + ((random * 27 ^ pwd_key) % last_pchar_offset);
-	}
 }
 
 /*
