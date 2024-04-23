@@ -215,8 +215,24 @@ static ssize_t device_read_algo(struct file *file,
 				size_t len,
 				loff_t *off)
 {
-	// TODO: to implement
-	return -EINVAL;
+	size_t string_length;
+	ssize_t bytes_to_read;
+
+	int minor_number = iminor(file_inode(file));
+
+	if (*off == 0) {
+		generate_key(otp_states[minor_number].data.key, otp_states[minor_number].data.key_len);
+	}
+
+	string_length = strlen(otp_states[minor_number].data.key);
+	bytes_to_read = min(len, (size_t)(string_length - *off));
+
+	if (copy_to_user(buf, otp_states[minor_number].data.key + *off, bytes_to_read))
+		return -EFAULT;
+
+	*off += bytes_to_read;
+
+	return bytes_to_read;
 }
 
 /*
