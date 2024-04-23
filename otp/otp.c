@@ -221,7 +221,7 @@ static ssize_t device_read_algo(struct file *file,
 	int minor_number = iminor(file_inode(file));
 
 	if (*off == 0)
-		generate_key(&otp_states[minor_number].data.key, otp_states[minor_number].data.key_len);
+		generate_key(otp_states[minor_number].data.key, MAX_ALGO_PWD_LEN);
 
 	string_length = strlen(otp_states[minor_number].data.key);
 	bytes_to_read = min(len, (size_t)(string_length - *off));
