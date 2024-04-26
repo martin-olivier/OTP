@@ -427,11 +427,10 @@ static int proc_show(struct seq_file *seq, void *off)
 			)
 		);
 
-		if (algo && !(elapsed > pwd_expiration || validated)) {
+		if (algo && !(elapsed > pwd_expiration || validated))
 			seq_printf(seq, " (%lld secs)\n", pwd_expiration - elapsed);
-		} else {
+		else
 			seq_printf(seq, "\n");
-		}
 	}
 
 	return 0;
