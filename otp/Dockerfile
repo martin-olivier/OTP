@@ -1,4 +1,4 @@
-FROM ubuntu:latest
+FROM ubuntu:22.04
 
 ARG KERNEL_VERSION=6.2.0-39-generic
 
