@@ -52,7 +52,7 @@ struct otp_state {
 static struct otp_state otp_state_new(void)
 {
 	return (struct otp_state) {
-		.data = {.key = {0}},
+		.data = {.iterator = -1},
 		.already_validated = true,
 		.already_open = ATOMIC_INIT(DEV_NOT_USED),
 		.is_algo = false
@@ -362,10 +362,12 @@ static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	switch (cmd) {
 	case 0: // Switch to password list OTP method
 		otp_states[minor_number].is_algo = false;
+		otp_states[minor_number].data.iterator = -1;
 		pr_info("Switched to password list OTP method for /dev/%s%i\n", MOD_NAME, minor_number);
 		break;
 	case 1: // Switch to key and time OTP method
 		otp_states[minor_number].is_algo = true;
+		otp_states[minor_number].data.key = {0};
 		pr_info("Switched to key and time OTP method for /dev/%s%i\n", MOD_NAME, minor_number);
 		break;
 	default:
