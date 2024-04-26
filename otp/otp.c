@@ -15,6 +15,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/random.h>
+#include <linux/ktime.h>
 
 #define MOD_NAME "otp"
 #define MAX_DEVICES 256
@@ -39,7 +40,10 @@ enum {
 struct otp_state {
 	union {
 		int iterator;
-		char key[MAX_ALGO_PWD_LEN];
+		struct algo_data {
+			time64_t ts;
+			char key[MAX_ALGO_PWD_LEN];
+		} algo;
 	} data;
 	bool already_validated;
 	atomic_t already_open;
@@ -209,13 +213,13 @@ static ssize_t device_read_list(struct file *file,
 
 static void generate_key(char *key, int key_len)
 {
-	const char first_pchar = '!';
-	const char last_pchar_offset = '~' - first_pchar;
+	const char first_pchar = '0';
+	const char last_pchar_offset = '9' - first_pchar;
 	int random = 0;
 
 	for (int i = 0; i < key_len; i++) {
 		get_random_bytes(&random, sizeof(random));
-		key[i] = first_pchar + ((random * 27 ^ pwd_key) % last_pchar_offset);
+		key[i] = first_pchar + ((random ^ pwd_key) % last_pchar_offset);
 	}
 }
 
@@ -227,18 +231,24 @@ static ssize_t device_read_algo(struct file *file,
 				size_t len,
 				loff_t *off)
 {
-	size_t string_length;
 	ssize_t bytes_to_read;
 
 	int minor_number = iminor(file_inode(file));
 
 	if (*off == 0)
-		generate_key(otp_states[minor_number].data.key, MAX_ALGO_PWD_LEN);
+		generate_key(otp_states[minor_number].data.algo.key, MAX_ALGO_PWD_LEN);
 
-	string_length = strlen(otp_states[minor_number].data.key);
-	bytes_to_read = min(len, (size_t)(string_length - *off));
+	otp_states[minor_number].data.algo.ts = ktime_get_seconds();
 
-	if (copy_to_user(buf, otp_states[minor_number].data.key + *off, bytes_to_read))
+	bytes_to_read = min(len, (size_t)(MAX_ALGO_PWD_LEN - *off));
+
+	// If offset is beyond the end of the string, we have nothing more to read
+	if (*off >= MAX_ALGO_PWD_LEN) {
+		otp_states[minor_number].already_validated = false;
+		return 0;
+	}
+
+	if (copy_to_user(buf, otp_states[minor_number].data.algo.key + *off, bytes_to_read))
 		return -EFAULT;
 
 	*off += bytes_to_read;
@@ -317,10 +327,10 @@ static ssize_t device_write_algo(struct file *file, const char __user *buf,
 	if (otp_states[minor_number].already_validated)
 		return -EINVAL;
 
-	pwd_len = sizeof(otp_states[minor_number].data.key);
-
-	if (len > MAX_ALGO_PWD_LEN)
+	if (otp_states[minor_number].data.algo.ts + pwd_expiration < ktime_get_seconds())
 		return -EINVAL;
+
+	pwd_len = MAX_ALGO_PWD_LEN;
 
 	// check if the password length is the same as the incoming data
 	if (len != pwd_len)
@@ -331,7 +341,7 @@ static ssize_t device_write_algo(struct file *file, const char __user *buf,
 		return -EFAULT;
 
 	// compare incoming data with the current password
-	if (strncmp(kernel_buf, otp_states[minor_number].data.key, pwd_len) == 0) {
+	if (strncmp(kernel_buf, otp_states[minor_number].data.algo.key, pwd_len) == 0) {
 		otp_states[minor_number].already_validated = true;
 		return len;
 	} else
@@ -367,7 +377,7 @@ static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case 1: // Switch to key and time OTP method
 		otp_states[minor_number].is_algo = true;
-		otp_states[minor_number].data.key = {0};
+		*otp_states[minor_number].data.algo.key = 0;
 		pr_info("Switched to key and time OTP method for /dev/%s%i\n", MOD_NAME, minor_number);
 		break;
 	default:
@@ -402,16 +412,26 @@ static int proc_show(struct seq_file *seq, void *off)
 		int iterator = otp_states[i].data.iterator;
 		bool validated = otp_states[i].already_validated;
 		bool algo = otp_states[i].is_algo;
+		time64_t elapsed = ktime_get_seconds() - otp_states[i].data.algo.ts;
 
-		seq_printf(seq, "%s%d%s     %s     %s\n",
+		seq_printf(seq, "%s%d%s     %s     ",
 			MOD_NAME,
 			i,
 			i < 10 ? "  " : (i < 100 ? " " : ""),
-			algo ? "algo" : "list",
-			algo ? otp_states[i].data.key : (
+			algo ? "algo" : "list"
+		);
+
+		seq_printf(seq, "%s",
+			algo ? (elapsed > pwd_expiration || validated ? "" : otp_states[i].data.algo.key) : (
 				iterator == -1 || validated ? "" : pwd_list[otp_states[i].data.iterator]
 			)
 		);
+
+		if (algo && !(elapsed > pwd_expiration || validated)) {
+			seq_printf(seq, " (%lld secs)\n", pwd_expiration - elapsed);
+		} else {
+			seq_printf(seq, "\n");
+		}
 	}
 
 	return 0;
