@@ -14,9 +14,12 @@
 #include <linux/version.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
+#include <linux/random.h>
+#include <linux/ktime.h>
 
 #define MOD_NAME "otp"
 #define MAX_DEVICES 256
+#define MAX_ALGO_PWD_LEN 16
 
 static struct class *cls;
 static struct proc_dir_entry *proc;
@@ -35,7 +38,13 @@ enum {
 
 // struct that contains one time password data
 struct otp_state {
-	int iterator;
+	union {
+		int iterator;
+		struct algo_data {
+			time64_t ts;
+			char key[MAX_ALGO_PWD_LEN];
+		} algo;
+	} data;
 	bool already_validated;
 	atomic_t already_open;
 	bool is_algo;
@@ -47,7 +56,7 @@ struct otp_state {
 static struct otp_state otp_state_new(void)
 {
 	return (struct otp_state) {
-		.iterator = -1,
+		.data = {.iterator = -1},
 		.already_validated = true,
 		.already_open = ATOMIC_INIT(DEV_NOT_USED),
 		.is_algo = false
@@ -63,6 +72,8 @@ struct otp_state otp_states[MAX_DEVICES];
 static int devices = 1;
 static char *pwd_list[4096] = { NULL };
 static int pwd_list_argc;
+static int pwd_key = 0x42;
+static int pwd_expiration = 30;
 
 /*
  * Called when the 'devices' parameter is changed
@@ -114,6 +125,13 @@ MODULE_PARM_DESC(devices, "Number of devices to create");
 
 module_param_array(pwd_list, charp, &pwd_list_argc, 0660);
 MODULE_PARM_DESC(pwd_list, "Passwords list");
+
+module_param(pwd_key, int, 0660);
+MODULE_PARM_DESC(pwd_key, "Encryption key (algorithm mode)");
+
+module_param(pwd_expiration, int, 0660);
+MODULE_PARM_DESC(pwd_key, "Encryption key expiration in seconds (algorithm mode)");
+
 
 ////////////
 // DEVICE //
@@ -167,15 +185,14 @@ static ssize_t device_read_list(struct file *file,
 
 	if (pwd_list_argc == 0)
 		return -EINVAL;
-
 	// If a new read occurs, we need to create a new one time password
 	if (*off == 0) {
-		otp_states[minor_number].iterator++;
-		if (otp_states[minor_number].iterator >= pwd_list_argc)
-			otp_states[minor_number].iterator = 0;
+		otp_states[minor_number].data.iterator++;
+		if (otp_states[minor_number].data.iterator >= pwd_list_argc)
+			otp_states[minor_number].data.iterator = 0;
 	}
 
-	string_length = strlen(pwd_list[otp_states[minor_number].iterator]);
+	string_length = strlen(pwd_list[otp_states[minor_number].data.iterator]);
 	bytes_to_read = min(len, (size_t)(string_length - *off));
 
 	// If offset is beyond the end of the string, we have nothing more to read
@@ -185,13 +202,25 @@ static ssize_t device_read_list(struct file *file,
 	}
 
 	// Copy data from kernel buffer to user buffer
-	if (copy_to_user(buf, pwd_list[otp_states[minor_number].iterator] + *off, bytes_to_read))
+	if (copy_to_user(buf, pwd_list[otp_states[minor_number].data.iterator] + *off, bytes_to_read))
 		return -EFAULT;
 
 	// Update the offset and number of bytes read
 	*off += bytes_to_read;
 
 	return bytes_to_read;
+}
+
+static void generate_key(char *key, int key_len)
+{
+	const char first_pchar = '0';
+	const char last_pchar_offset = '9' - first_pchar;
+	int random = 0;
+
+	for (int i = 0; i < key_len; i++) {
+		get_random_bytes(&random, sizeof(random));
+		key[i] = first_pchar + ((random ^ pwd_key) % last_pchar_offset);
+	}
 }
 
 /*
@@ -202,8 +231,29 @@ static ssize_t device_read_algo(struct file *file,
 				size_t len,
 				loff_t *off)
 {
-	// TODO: to implement
-	return -EINVAL;
+	ssize_t bytes_to_read;
+
+	int minor_number = iminor(file_inode(file));
+
+	if (*off == 0)
+		generate_key(otp_states[minor_number].data.algo.key, MAX_ALGO_PWD_LEN);
+
+	otp_states[minor_number].data.algo.ts = ktime_get_seconds();
+
+	bytes_to_read = min(len, (size_t)(MAX_ALGO_PWD_LEN - *off));
+
+	// If offset is beyond the end of the string, we have nothing more to read
+	if (*off >= MAX_ALGO_PWD_LEN) {
+		otp_states[minor_number].already_validated = false;
+		return 0;
+	}
+
+	if (copy_to_user(buf, otp_states[minor_number].data.algo.key + *off, bytes_to_read))
+		return -EFAULT;
+
+	*off += bytes_to_read;
+
+	return bytes_to_read;
 }
 
 /*
@@ -238,10 +288,10 @@ static ssize_t device_write_list(struct file *file, const char __user *buf,
 		return -EINVAL;
 
 	// if iterator is out of range, return EINVAL
-	if (otp_states[minor_number].iterator == -1 || otp_states[minor_number].iterator >= pwd_list_argc)
+	if (otp_states[minor_number].data.iterator == -1 || otp_states[minor_number].data.iterator >= pwd_list_argc)
 		return -EINVAL;
 
-	pwd_len = strlen(pwd_list[otp_states[minor_number].iterator]);
+	pwd_len = strlen(pwd_list[otp_states[minor_number].data.iterator]);
 
 	if (len > PAGE_SIZE)
 		return -EINVAL;
@@ -255,7 +305,7 @@ static ssize_t device_write_list(struct file *file, const char __user *buf,
 		return -EFAULT;
 
 	// compare incoming data with the current password
-	if (strncmp(kernel_buf, pwd_list[otp_states[minor_number].iterator], pwd_len) == 0) {
+	if (strncmp(kernel_buf, pwd_list[otp_states[minor_number].data.iterator], pwd_len) == 0) {
 		otp_states[minor_number].already_validated = true;
 		return len;
 	} else
@@ -268,8 +318,34 @@ static ssize_t device_write_list(struct file *file, const char __user *buf,
 static ssize_t device_write_algo(struct file *file, const char __user *buf,
 				size_t len, loff_t *off)
 {
-	// TODO: to implement
-	return -EINVAL;
+	static char kernel_buf[MAX_ALGO_PWD_LEN];
+	int pwd_len = 0;
+
+	int minor_number = iminor(file_inode(file));
+
+	// if current otp has been already validated, return EINVAL
+	if (otp_states[minor_number].already_validated)
+		return -EINVAL;
+
+	if (otp_states[minor_number].data.algo.ts + pwd_expiration < ktime_get_seconds())
+		return -EINVAL;
+
+	pwd_len = MAX_ALGO_PWD_LEN;
+
+	// check if the password length is the same as the incoming data
+	if (len != pwd_len)
+		return -EINVAL;
+
+	// get the data from the user
+	if (copy_from_user(kernel_buf, buf, len))
+		return -EFAULT;
+
+	// compare incoming data with the current password
+	if (strncmp(kernel_buf, otp_states[minor_number].data.algo.key, pwd_len) == 0) {
+		otp_states[minor_number].already_validated = true;
+		return len;
+	} else
+		return -EINVAL;
 }
 
 /*
@@ -296,10 +372,12 @@ static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	switch (cmd) {
 	case 0: // Switch to password list OTP method
 		otp_states[minor_number].is_algo = false;
+		otp_states[minor_number].data.iterator = -1;
 		pr_info("Switched to password list OTP method for /dev/%s%i\n", MOD_NAME, minor_number);
 		break;
 	case 1: // Switch to key and time OTP method
 		otp_states[minor_number].is_algo = true;
+		*otp_states[minor_number].data.algo.key = 0;
 		pr_info("Switched to key and time OTP method for /dev/%s%i\n", MOD_NAME, minor_number);
 		break;
 	default:
@@ -331,18 +409,28 @@ static int proc_show(struct seq_file *seq, void *off)
 
 	// iterate on all devices to display their current status
 	for (int i = 0; i < devices; i++) {
-		int iterator = otp_states[i].iterator;
+		int iterator = otp_states[i].data.iterator;
 		bool validated = otp_states[i].already_validated;
+		bool algo = otp_states[i].is_algo;
+		time64_t elapsed = ktime_get_seconds() - otp_states[i].data.algo.ts;
 
-		seq_printf(seq, "%s%d%s     %s     %s\n",
+		seq_printf(seq, "%s%d%s     %s     ",
 			MOD_NAME,
 			i,
 			i < 10 ? "  " : (i < 100 ? " " : ""),
-			otp_states[i].is_algo ? "algo" : "list",
-			otp_states[i].is_algo ? "" : (
-				iterator == -1 || validated ? "" : pwd_list[otp_states[i].iterator]
+			algo ? "algo" : "list"
+		);
+
+		seq_printf(seq, "%s",
+			algo ? (elapsed > pwd_expiration || validated ? "" : otp_states[i].data.algo.key) : (
+				iterator == -1 || validated ? "" : pwd_list[otp_states[i].data.iterator]
 			)
 		);
+
+		if (algo && !(elapsed > pwd_expiration || validated))
+			seq_printf(seq, " (%lld secs)\n", pwd_expiration - elapsed);
+		else
+			seq_printf(seq, "\n");
 	}
 
 	return 0;
